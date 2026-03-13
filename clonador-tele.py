@@ -3,6 +3,7 @@
 
 import asyncio
 import os
+import random
 import sys
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
@@ -213,6 +214,12 @@ async def clonar_topico_especifico(client):
                 erros += 1
                 if erros < 5:  # Mostra apenas os 5 primeiros erros
                     print(f"\n⚠️ Erro (msg {count}): {e}")
+            
+            # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
+            if count % 100 == 0 and count > 0:
+                espera = random.uniform(2, 4)
+                print(f"\n⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
+                await asyncio.sleep(espera)
         
         print(f"\n{'='*60}")
         print(f"🎉 CONCLUÍDO!")
@@ -271,6 +278,12 @@ async def clonar_canal(client):
                 erros += 1
                 if erros < 5:
                     print(f"\n⚠️ Erro (msg {count}): {e}")
+            
+            # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
+            if count % 100 == 0 and count > 0:
+                espera = random.uniform(2, 4)
+                print(f"\n⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
+                await asyncio.sleep(espera)
         
         print(f"\n{'='*60}")
         print(f"🎉 CONCLUÍDO!")
@@ -334,6 +347,12 @@ async def clonar_todos_topicos(client):
                     await asyncio.sleep(0.1)
                 except Exception as e:
                     erros += 1
+                
+                # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
+                if count % 100 == 0 and count > 0:
+                    espera = random.uniform(2, 4)
+                    print(f"\n  ⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
+                    await asyncio.sleep(espera)
             
             print(f"  📊 Concluído: {count} msgs copiadas")
         
