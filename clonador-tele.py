@@ -185,6 +185,8 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
     count = 0
     erros = 0
     BATCH_SIZE = 100
+    SLEEP_ENTRE_LOTES = 1   # segundos entre cada lote de mensagens
+    SLEEP_APOS_FLOOD = 1    # segundos extras após recuperar de FloodWait
 
     kwargs = {"reverse": True, "limit": limit}
     if reply_to is not None:
@@ -195,15 +197,28 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
     async def _enviar_lote(ids):
         nonlocal count, erros
         try:
-            await client.forward_messages(destino, ids, origem)
+            await client.forward_messages(destino, ids, origem, drop_author=True)
             count += len(ids)
             print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
         except FloodWaitError as e:
-            print(f"\n{indent}⚠️ Flood! Aguardando {e.seconds}s...")
-            await asyncio.sleep(e.seconds)
+            wait = e.seconds + SLEEP_APOS_FLOOD
+            print(f"\n{indent}⚠️ Flood! Aguardando {wait}s...")
+            await asyncio.sleep(wait)
             try:
-                await client.forward_messages(destino, ids, origem)
+                await client.forward_messages(destino, ids, origem, drop_author=True)
                 count += len(ids)
+                print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
+            except FloodWaitError as e2:
+                wait2 = e2.seconds + SLEEP_APOS_FLOOD
+                print(f"\n{indent}⚠️ Flood novamente! Aguardando {wait2}s...")
+                await asyncio.sleep(wait2)
+                try:
+                    await client.forward_messages(destino, ids, origem, drop_author=True)
+                    count += len(ids)
+                    print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
+                except Exception as e3:
+                    erros += len(ids)
+                    print(f"\n{indent}⚠️ Erro no lote após retries de flood: {e3}")
             except Exception as e2:
                 erros += len(ids)
                 print(f"\n{indent}⚠️ Erro no lote após retry de flood: {e2}")
@@ -216,7 +231,7 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
         if len(batch) >= BATCH_SIZE:
             await _enviar_lote(batch)
             batch = []
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(SLEEP_ENTRE_LOTES)
 
     if batch:
         await _enviar_lote(batch)
@@ -363,6 +378,9 @@ async def clonar_todos_topicos(client):
             total_count += count
             total_erros += erros
             print(f"  📊 Concluído: {count} msgs copiadas, {erros} erros")
+            if idx < len(topicos_ids):
+                print(f"  ⏳ Aguardando 3s antes do próximo tópico...")
+                await asyncio.sleep(3)
         
         elapsed = time.monotonic() - inicio_total
         print("\n" + "="*60)
