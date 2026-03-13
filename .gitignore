@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Telegram session files
+*.session
+*.session-journal
+
+# Credentials
+.env
