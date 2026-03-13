@@ -8,7 +8,7 @@ import sys
 import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
-from telethon.tl.functions.channels import GetForumTopicsRequest
+from telethon.tl.functions.messages import GetForumTopicsRequest
 from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
