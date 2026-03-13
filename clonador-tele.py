@@ -8,6 +8,7 @@ import sys
 import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.tl.functions.channels import GetForumTopicsRequest
 from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
@@ -117,22 +118,36 @@ async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostra
         except ValueError:
             print("❌ Digite apenas números!")
 
+async def _obter_topicos_forum(client, grupo):
+    """Obtém tópicos do fórum via API oficial (rápido, sem iterar mensagens)."""
+    topicos = {}
+    offset_topic = 0
+    while True:
+        result = await client(GetForumTopicsRequest(
+            channel=grupo,
+            q='',
+            offset_date=0,
+            offset_id=0,
+            offset_topic=offset_topic,
+            limit=100,
+        ))
+        if not result.topics:
+            break
+        for topic in result.topics:
+            topicos[topic.id] = topic.title
+        if len(result.topics) < 100:
+            break
+        offset_topic = result.topics[-1].id
+    return topicos
+
 async def listar_topicos_grupo(client, grupo_id):
-    """Lista todos os tópicos de um grupo (busca completa)"""
+    """Lista todos os tópicos de um grupo usando a API oficial."""
     print(f"\n{'='*60}")
     print("TÓPICOS ENCONTRADOS (Buscando...)")
     print(f"{'='*60}")
     
     grupo = await client.get_input_entity(grupo_id)
-    topicos = {}
-    
-    # Busca TODAS as mensagens para encontrar tópicos
-    async for msg in client.iter_messages(grupo, reverse=True):
-        if msg.reply_to is None and msg.reply_to_msg_id:
-            # É uma mensagem de tópico
-            if msg.id not in topicos:
-                preview = msg.message[:60] if msg.message else "🖼️ Mídia"
-                topicos[msg.id] = preview
+    topicos = await _obter_topicos_forum(client, grupo)
     
     if not topicos:
         print("❌ Nenhum tópico encontrado!")
@@ -166,37 +181,45 @@ async def listar_topicos_grupo(client, grupo_id):
 # ============== FUNÇÕES DE CLONAGEM Otimizadas ==============
 
 async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, indent=""):
-    """Envia mensagens de origem para destino com controle de flood e pausas humanizadas."""
+    """Encaminha mensagens em lotes para destino com controle de flood."""
     count = 0
     erros = 0
+    BATCH_SIZE = 100
 
     kwargs = {"reverse": True, "limit": limit}
     if reply_to is not None:
         kwargs["reply_to"] = reply_to
 
-    async for msg in client.iter_messages(origem, **kwargs):
+    batch = []
+
+    async def _enviar_lote(ids):
+        nonlocal count, erros
         try:
-            await client.send_message(destino, msg.message, file=msg.media)
-            count += 1
-
-            if count % 10 == 0:
-                print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
-
-            await asyncio.sleep(0.1)
-
+            await client.forward_messages(destino, ids, origem)
+            count += len(ids)
+            print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
         except FloodWaitError as e:
             print(f"\n{indent}⚠️ Flood! Aguardando {e.seconds}s...")
             await asyncio.sleep(e.seconds)
+            try:
+                await client.forward_messages(destino, ids, origem)
+                count += len(ids)
+            except Exception as e2:
+                erros += len(ids)
+                print(f"\n{indent}⚠️ Erro no lote após retry de flood: {e2}")
         except Exception as e:
-            erros += 1
-            if erros < 5:
-                print(f"\n{indent}⚠️ Erro (msg {count}): {e}")
+            erros += len(ids)
+            print(f"\n{indent}⚠️ Erro no lote: {e}")
 
-        # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
-        if count % 100 == 0 and count > 0:
-            espera = random.uniform(2, 4)
-            print(f"\n{indent}⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
-            await asyncio.sleep(espera)
+    async for msg in client.iter_messages(origem, **kwargs):
+        batch.append(msg.id)
+        if len(batch) >= BATCH_SIZE:
+            await _enviar_lote(batch)
+            batch = []
+            await asyncio.sleep(0.5)
+
+    if batch:
+        await _enviar_lote(batch)
 
     return count, erros
 
@@ -313,28 +336,22 @@ async def clonar_todos_topicos(client):
         grupo_destino = await client.get_input_entity(destino)
         
         print("\n📲 Buscando tópicos...")
-        topicos = []
-        
-        # Encontra TODOS os tópicos
-        async for msg in client.iter_messages(grupo_origem, reverse=True):
-            if msg.reply_to is None and msg.reply_to_msg_id:
-                if msg.id not in topicos:
-                    topicos.append(msg.id)
-        
-        if not topicos:
+        topicos = await _obter_topicos_forum(client, grupo_origem)
+        topicos_ids = list(topicos.keys())
+        if not topicos_ids:
             print("❌ Nenhum tópico encontrado!")
             return
         
-        print(f"✅ Encontrados {len(topicos)} tópicos!\n")
+        print(f"✅ Encontrados {len(topicos_ids)} tópicos!\n")
         
         total_count = 0
         total_erros = 0
         inicio_total = time.monotonic()
         
         # Clona cada tópico
-        for idx, topico_id in enumerate(topicos, 1):
+        for idx, topico_id in enumerate(topicos_ids, 1):
             print(f"\n{'-'*50}")
-            print(f"📌 Tópico {idx}/{len(topicos)} (ID: {topico_id})")
+            print(f"📌 Tópico {idx}/{len(topicos_ids)} (ID: {topico_id})")
             print(f"{'-'*50}")
             
             count, erros = await _clonar_mensagens(
