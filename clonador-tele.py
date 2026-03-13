@@ -8,6 +8,7 @@ import sys
 import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.tl.functions.channels import CreateChannelRequest
 from telethon.tl.functions.messages import GetForumTopicsRequest
 from telethon.tl.types import Channel
 
@@ -393,6 +394,80 @@ async def clonar_todos_topicos(client):
     except Exception as e:
         print(f"\n❌ Erro: {e}")
 
+async def criar_grupo_backup(client, nome_origem):
+    """Cria um supergrupo backup automaticamente com base no nome da origem."""
+    nome_backup = f"{nome_origem} - Backup"
+    print(f"\n📁 Criando grupo backup: '{nome_backup}'...")
+    try:
+        result = await client(CreateChannelRequest(
+            title=nome_backup,
+            about=f"Backup automático de: {nome_origem}",
+            megagroup=True,
+        ))
+        grupo = result.chats[0]
+        print(f"✅ Grupo backup criado com sucesso! ID: {grupo.id}")
+        return grupo
+    except Exception as e:
+        print(f"❌ Erro ao criar grupo backup: {e}")
+        return None
+
+async def clonar_com_backup_automatico(client):
+    """Seleciona canal/grupo de origem e cria automaticamente um grupo backup como destino."""
+    print("\n" + "="*60)
+    print("CLONAR CANAL COM BACKUP AUTOMÁTICO")
+    print("="*60)
+
+    try:
+        if input("\n🎯 Usar seleção automática? (s/n): ").lower().startswith('s'):
+            origem_id = await selecionar_entidade(client, "ORIGEM (de onde COPIAR)", mostrar_canais=True, mostrar_grupos=True)
+        else:
+            origem_id = input("ID/@ canal/grupo origem: ").strip()
+            try:
+                origem_id = int(origem_id)
+            except ValueError:
+                pass
+
+        canal_origem = await client.get_input_entity(origem_id)
+
+        # Obtém o nome do canal/grupo de origem para nomear o backup
+        origem_entity = await client.get_entity(origem_id)
+        nome_origem = getattr(origem_entity, 'title', str(origem_id))
+
+        # Cria grupo backup automaticamente
+        grupo_backup = await criar_grupo_backup(client, nome_origem)
+        if grupo_backup is None:
+            print("❌ Não foi possível criar o grupo backup.")
+            return
+
+        canal_destino = await client.get_input_entity(grupo_backup.id)
+
+        qtd_msgs = input("Quantidade (0=todas, Enter=0): ").strip()
+        qtd_msgs = int(qtd_msgs) if qtd_msgs else 0
+
+        print("\n" + "="*60)
+        print("INICIANDO CLONAGEM COMPLETA...")
+        print("="*60)
+        print("🔄 Processando... NÃO FECHE O TERMUX!\n")
+
+        inicio = time.monotonic()
+        count, erros = await _clonar_mensagens(
+            client, canal_origem, canal_destino,
+            limit=None if qtd_msgs == 0 else qtd_msgs,
+        )
+        elapsed = time.monotonic() - inicio
+
+        print(f"\n{'='*60}")
+        print(f"🎉 CONCLUÍDO! ({elapsed:.0f}s)")
+        print(f"✅ Total: {count} mensagens copiadas")
+        print(f"❌ Erros: {erros}")
+        print(f"📁 Backup salvo em: {grupo_backup.title}")
+        print(f"{'='*60}")
+
+    except KeyboardInterrupt:
+        print("\n\n🛑 CLONAGEM INTERROMPIDA PELO USUÁRIO!")
+    except Exception as e:
+        print(f"\n❌ Erro crítico: {e}")
+
 async def menu_principal():
     MENU = """
 ╔════════════════════════════════════════════════════════════╗
@@ -401,7 +476,8 @@ async def menu_principal():
 ║ 1. Clonar UM tópico de grupo (com lista de tópicos)        ║
 ║ 2. Clonar TODOS os tópicos de grupo                        ║
 ║ 3. Clonar canal completo (TODAS as mensagens)              ║
-║ 4. Sair                                                    ║
+║ 4. Clonar canal com BACKUP AUTOMÁTICO                      ║
+║ 5. Sair                                                    ║
 ╚════════════════════════════════════════════════════════════╝
 """
     client = await connect_client()
@@ -411,7 +487,7 @@ async def menu_principal():
             limpar_tela()
             print(MENU)
             
-            opcao = input("\nOpção (1-4): ").strip()
+            opcao = input("\nOpção (1-5): ").strip()
             
             if opcao == "1":
                 await clonar_topico_especifico(client)
@@ -420,6 +496,8 @@ async def menu_principal():
             elif opcao == "3":
                 await clonar_canal(client)
             elif opcao == "4":
+                await clonar_com_backup_automatico(client)
+            elif opcao == "5":
                 print("👋 Saindo...")
                 break
             else:
