@@ -5,6 +5,7 @@ import asyncio
 import os
 import random
 import sys
+import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
 from telethon.tl.types import Channel
@@ -14,7 +15,7 @@ SESSION_FILE = "telegram_session"
 def limpar_tela():
     os.system('clear')
 
-async def get_credentials():
+def get_credentials():
     if not os.path.exists(".env"):
         print("⚙️ PRIMEIRA CONFIGURAÇÃO!")
         print("Obtenha em: https://my.telegram.org\n")
@@ -32,10 +33,10 @@ async def connect_client():
     try:
         if os.path.exists(f"{SESSION_FILE}.session-journal"):
             os.remove(f"{SESSION_FILE}.session-journal")
-    except:
+    except Exception:
         pass
     
-    api_id, api_hash = await get_credentials()
+    api_id, api_hash = get_credentials()
     client = TelegramClient(SESSION_FILE, api_id, api_hash)
     
     try:
@@ -97,10 +98,10 @@ async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostra
     print(f"{'='*60}")
     
     # Mostra lista numerada
-    for i, (nome, id, user) in enumerate(todas_entidades, 1):
-        tipo = "📢 Canal" if i <= len(canais) or not mostrar_grupos else "📁 Grupo"
-        print(f"  {i:2d}. {tipo}: {nome}")
-        print(f"      ID: {id}")
+    for i, (nome, eid, _) in enumerate(todas_entidades, 1):
+        tipo_label = "📢 Canal" if i <= len(canais) else "📁 Grupo"
+        print(f"  {i:2d}. {tipo_label}: {nome}")
+        print(f"      ID: {eid}")
     
     print(f"\n  {len(todas_entidades) + 1}. 📝 Digitar ID manualmente")
     
@@ -164,6 +165,41 @@ async def listar_topicos_grupo(client, grupo_id):
 
 # ============== FUNÇÕES DE CLONAGEM Otimizadas ==============
 
+async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, indent=""):
+    """Envia mensagens de origem para destino com controle de flood e pausas humanizadas."""
+    count = 0
+    erros = 0
+
+    kwargs = {"reverse": True, "limit": limit}
+    if reply_to is not None:
+        kwargs["reply_to"] = reply_to
+
+    async for msg in client.iter_messages(origem, **kwargs):
+        try:
+            await client.send_message(destino, msg.message, file=msg.media)
+            count += 1
+
+            if count % 10 == 0:
+                print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
+
+            await asyncio.sleep(0.1)
+
+        except FloodWaitError as e:
+            print(f"\n{indent}⚠️ Flood! Aguardando {e.seconds}s...")
+            await asyncio.sleep(e.seconds)
+        except Exception as e:
+            erros += 1
+            if erros < 5:
+                print(f"\n{indent}⚠️ Erro (msg {count}): {e}")
+
+        # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
+        if count % 100 == 0 and count > 0:
+            espera = random.uniform(2, 4)
+            print(f"\n{indent}⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
+            await asyncio.sleep(espera)
+
+    return count, erros
+
 async def clonar_topico_especifico(client):
     print("\n" + "="*60)
     print("COPIAR TÓPICO ESPECÍFICO")
@@ -180,6 +216,10 @@ async def clonar_topico_especifico(client):
             topico_id = int(input("ID tópico: "))
             destino = int(input("ID grupo destino: "))
         
+        if topico_id is None:
+            print("❌ Nenhum tópico selecionado.")
+            return
+        
         qtd_msgs = input("Quantidade (0=todas, Enter=0): ").strip()
         qtd_msgs = int(qtd_msgs) if qtd_msgs else 0
         
@@ -191,38 +231,16 @@ async def clonar_topico_especifico(client):
         print("="*60)
         print("🔄 Processando... NÃO FECHE O TERMINAL!\n")
         
-        count = 0
-        erros = 0
-        
-        # Busca TODAS as mensagens do tópico em ordem CORRETA
-        async for msg in client.iter_messages(grupo_origem, reply_to=topico_id, reverse=True, limit=None if qtd_msgs == 0 else qtd_msgs):
-            try:
-                await client.send_message(grupo_destino, msg.message, file=msg.media)
-                count += 1
-                
-                # Atualiza a cada 10 msgs
-                if count % 10 == 0:
-                    print(f"✅ {count} mensagens copiadas...", end='\r')
-                
-                # Pequeno delay para evitar flood
-                await asyncio.sleep(0.1)
-                
-            except FloodWaitError as e:
-                print(f"\n⚠️ Flood! Aguardando {e.seconds}s...")
-                await asyncio.sleep(e.seconds)
-            except Exception as e:
-                erros += 1
-                if erros < 5:  # Mostra apenas os 5 primeiros erros
-                    print(f"\n⚠️ Erro (msg {count}): {e}")
-            
-            # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
-            if count % 100 == 0 and count > 0:
-                espera = random.uniform(2, 4)
-                print(f"\n⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
-                await asyncio.sleep(espera)
+        inicio = time.monotonic()
+        count, erros = await _clonar_mensagens(
+            client, grupo_origem, grupo_destino,
+            reply_to=topico_id,
+            limit=None if qtd_msgs == 0 else qtd_msgs,
+        )
+        elapsed = time.monotonic() - inicio
         
         print(f"\n{'='*60}")
-        print(f"🎉 CONCLUÍDO!")
+        print(f"🎉 CONCLUÍDO! ({elapsed:.0f}s)")
         print(f"✅ Total: {count} mensagens copiadas")
         print(f"❌ Erros: {erros}")
         print(f"{'='*60}")
@@ -257,36 +275,15 @@ async def clonar_canal(client):
         print("="*60)
         print("🔄 Processando... NÃO FECHE O TERMUX!\n")
         
-        count = 0
-        erros = 0
-        
-        # Busca TODAS as mensagens em ordem CORRETA
-        async for msg in client.iter_messages(canal_origem, reverse=True, limit=None if qtd_msgs == 0 else qtd_msgs):
-            try:
-                await client.send_message(canal_destino, msg.message, file=msg.media)
-                count += 1
-                
-                if count % 10 == 0:
-                    print(f"✅ {count} mensagens copiadas...", end='\r')
-                
-                await asyncio.sleep(0.1)
-                
-            except FloodWaitError as e:
-                print(f"\n⚠️ Flood! Aguardando {e.seconds}s...")
-                await asyncio.sleep(e.seconds)
-            except Exception as e:
-                erros += 1
-                if erros < 5:
-                    print(f"\n⚠️ Erro (msg {count}): {e}")
-            
-            # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
-            if count % 100 == 0 and count > 0:
-                espera = random.uniform(2, 4)
-                print(f"\n⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
-                await asyncio.sleep(espera)
+        inicio = time.monotonic()
+        count, erros = await _clonar_mensagens(
+            client, canal_origem, canal_destino,
+            limit=None if qtd_msgs == 0 else qtd_msgs,
+        )
+        elapsed = time.monotonic() - inicio
         
         print(f"\n{'='*60}")
-        print(f"🎉 CONCLUÍDO!")
+        print(f"🎉 CONCLUÍDO! ({elapsed:.0f}s)")
         print(f"✅ Total: {count} mensagens copiadas")
         print(f"❌ Erros: {erros}")
         print(f"{'='*60}")
@@ -330,34 +327,30 @@ async def clonar_todos_topicos(client):
         
         print(f"✅ Encontrados {len(topicos)} tópicos!\n")
         
+        total_count = 0
+        total_erros = 0
+        inicio_total = time.monotonic()
+        
         # Clona cada tópico
         for idx, topico_id in enumerate(topicos, 1):
             print(f"\n{'-'*50}")
             print(f"📌 Tópico {idx}/{len(topicos)} (ID: {topico_id})")
             print(f"{'-'*50}")
             
-            count = 0
-            erros = 0
-            
-            async for topico_msg in client.iter_messages(grupo_origem, reply_to=topico_id, reverse=True, limit=None if qtd == 0 else qtd):
-                try:
-                    await client.send_message(grupo_destino, topico_msg.message, file=topico_msg.media)
-                    count += 1
-                    print(f"  ✅ {count} msgs", end='\r')
-                    await asyncio.sleep(0.1)
-                except Exception as e:
-                    erros += 1
-                
-                # A cada 100 mensagens, aguarda entre 2 a 4 segundos (comportamento humano)
-                if count % 100 == 0 and count > 0:
-                    espera = random.uniform(2, 4)
-                    print(f"\n  ⏳ Lote de 100 concluído. Aguardando {espera:.1f}s...")
-                    await asyncio.sleep(espera)
-            
-            print(f"  📊 Concluído: {count} msgs copiadas")
+            count, erros = await _clonar_mensagens(
+                client, grupo_origem, grupo_destino,
+                reply_to=topico_id,
+                limit=None if qtd == 0 else qtd,
+                indent="  ",
+            )
+            total_count += count
+            total_erros += erros
+            print(f"  📊 Concluído: {count} msgs copiadas, {erros} erros")
         
+        elapsed = time.monotonic() - inicio_total
         print("\n" + "="*60)
-        print("🎉 TODOS OS TÓPICOS FORAM CLONADOS!")
+        print(f"🎉 TODOS OS TÓPICOS FORAM CLONADOS! ({elapsed:.0f}s)")
+        print(f"✅ Total: {total_count} mensagens | ❌ Erros: {total_erros}")
         print("="*60)
         
     except KeyboardInterrupt:
