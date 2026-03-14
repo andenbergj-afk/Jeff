@@ -70,7 +70,7 @@ async def connect_client():
 # ============== FUNÇÃO DE SELEÇÃO ATUALIZADA ==============
 
 async def listar_entidades(client, mostrar_canais=True, mostrar_grupos=True):
-    """Lista canais e/ou grupos com tópicos"""
+    """Lista canais e/ou grupos (incluindo megagrupos regulares e fóruns)"""
     canais = []
     grupos_topicos = []
     
@@ -79,7 +79,7 @@ async def listar_entidades(client, mostrar_canais=True, mostrar_grupos=True):
     async for dialog in client.iter_dialogs():
         entity = dialog.entity
         if isinstance(entity, Channel):
-            if entity.megagroup and getattr(entity, 'forum', False) and mostrar_grupos:
+            if entity.megagroup and mostrar_grupos:
                 grupos_topicos.append((dialog.name, entity.id, entity.username))
             elif not entity.megagroup and mostrar_canais:
                 canais.append((dialog.name, entity.id, entity.username))
@@ -87,7 +87,7 @@ async def listar_entidades(client, mostrar_canais=True, mostrar_grupos=True):
     return canais, grupos_topicos
 
 async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostrar_grupos=True):
-    """Permite selecionar canal/grupo da lista com paginação"""
+    """Permite selecionar canal/grupo da lista com paginação ou busca por nome"""
     canais, grupos = await listar_entidades(client, mostrar_canais, mostrar_grupos)
     todas_entidades = canais + grupos
     
@@ -105,12 +105,31 @@ async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostra
         print(f"  {i:2d}. {tipo_label}: {nome}")
         print(f"      ID: {eid}")
     
-    print(f"\n  {len(todas_entidades) + 1}. 📝 Digitar ID manualmente")
+    print(f"\n   0. 🔍 Buscar por nome")
+    print(f"  {len(todas_entidades) + 1}. 📝 Digitar ID manualmente")
     
     while True:
         try:
-            escolha = int(input(f"\nEscolha (1-{len(todas_entidades) + 1}): "))
-            if 1 <= escolha <= len(todas_entidades):
+            escolha = int(input(f"\nEscolha (0-{len(todas_entidades) + 1}): "))
+            if escolha == 0:
+                termo = input("🔍 Digite o nome (ou parte do nome): ").strip().lower()
+                resultados = [(n, eid, u) for n, eid, u in todas_entidades if termo in n.lower()]
+                if not resultados:
+                    print("❌ Nenhum resultado encontrado. Tente outro termo.")
+                    continue
+                print(f"\n✅ {len(resultados)} resultado(s) encontrado(s):\n")
+                for i, (nome, eid, _) in enumerate(resultados, 1):
+                    print(f"  {i:2d}. {nome}  (ID: {eid})")
+                while True:
+                    try:
+                        sub = int(input(f"\nEscolha (1-{len(resultados)}): "))
+                        if 1 <= sub <= len(resultados):
+                            return resultados[sub - 1][1]
+                        else:
+                            print("❌ Número inválido!")
+                    except ValueError:
+                        print("❌ Digite apenas números!")
+            elif 1 <= escolha <= len(todas_entidades):
                 return todas_entidades[escolha - 1][1]
             elif escolha == len(todas_entidades) + 1:
                 return int(input("Digite o ID: "))
@@ -468,6 +487,43 @@ async def clonar_com_backup_automatico(client):
     except Exception as e:
         print(f"\n❌ Erro crítico: {e}")
 
+async def buscar_grupos_por_nome(client):
+    """Busca grupos e canais dos quais o usuário faz parte por nome."""
+    print("\n" + "="*60)
+    print("BUSCAR GRUPOS/CANAIS POR NOME")
+    print("="*60)
+
+    canais, grupos = await listar_entidades(client, mostrar_canais=True, mostrar_grupos=True)
+    todas_entidades = canais + grupos
+
+    if not todas_entidades:
+        print("\n❌ Nenhuma conversa encontrada!")
+        return
+
+    print(f"\n✅ Total de conversas carregadas: {len(todas_entidades)}\n")
+
+    while True:
+        termo = input("🔍 Digite o nome (ou parte) para buscar (Enter para sair): ").strip()
+        if not termo:
+            print("👋 Saindo da busca.")
+            break
+
+        resultados = [(n, eid, u) for n, eid, u in todas_entidades if termo.lower() in n.lower()]
+
+        if not resultados:
+            print(f"❌ Nenhum resultado para '{termo}'. Tente outro termo.\n")
+            continue
+
+        print(f"\n✅ {len(resultados)} resultado(s) para '{termo}':\n")
+        num_canais = len(canais)
+        for i, (nome, eid, username) in enumerate(resultados, 1):
+            idx_global = todas_entidades.index((nome, eid, username))
+            tipo_label = "📢 Canal" if idx_global < num_canais else "📁 Grupo"
+            user_str = f"  (@{username})" if username else ""
+            print(f"  {i:2d}. {tipo_label}: {nome}{user_str}")
+            print(f"      ID: {eid}")
+        print()
+
 async def menu_principal():
     MENU = """
 ╔════════════════════════════════════════════════════════════╗
@@ -477,7 +533,8 @@ async def menu_principal():
 ║ 2. Clonar TODOS os tópicos de grupo                        ║
 ║ 3. Clonar canal completo (TODAS as mensagens)              ║
 ║ 4. Clonar canal com BACKUP AUTOMÁTICO                      ║
-║ 5. Sair                                                    ║
+║ 5. Buscar grupos/canais por nome                           ║
+║ 6. Sair                                                    ║
 ╚════════════════════════════════════════════════════════════╝
 """
     client = await connect_client()
@@ -487,7 +544,7 @@ async def menu_principal():
             limpar_tela()
             print(MENU)
             
-            opcao = input("\nOpção (1-5): ").strip()
+            opcao = input("\nOpção (1-6): ").strip()
             
             if opcao == "1":
                 await clonar_topico_especifico(client)
@@ -498,6 +555,8 @@ async def menu_principal():
             elif opcao == "4":
                 await clonar_com_backup_automatico(client)
             elif opcao == "5":
+                await buscar_grupos_por_nome(client)
+            elif opcao == "6":
                 print("👋 Saindo...")
                 break
             else:
