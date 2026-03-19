@@ -8,7 +8,7 @@ import sys
 import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
-from telethon.tl.functions.channels import CreateChannelRequest
+from telethon.tl.functions.channels import CreateChannelRequest, ToggleForumRequest, CreateForumTopicRequest
 from telethon.tl.functions.messages import GetForumTopicsRequest
 from telethon.tl.types import Channel
 
@@ -200,7 +200,7 @@ async def listar_topicos_grupo(client, grupo_id):
 
 # ============== FUNÇÕES DE CLONAGEM Otimizadas ==============
 
-async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, indent=""):
+async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, indent="", destino_topico_id=None):
     """Encaminha mensagens em lotes para destino com controle de flood."""
     count = 0
     erros = 0
@@ -212,12 +212,16 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
     if reply_to is not None:
         kwargs["reply_to"] = reply_to
 
+    fwd_kwargs = {"drop_author": True}
+    if destino_topico_id is not None:
+        fwd_kwargs["top_msg_id"] = destino_topico_id
+
     batch = []
 
     async def _enviar_lote(ids):
         nonlocal count, erros
         try:
-            await client.forward_messages(destino, ids, origem, drop_author=True)
+            await client.forward_messages(destino, ids, origem, **fwd_kwargs)
             count += len(ids)
             print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
         except FloodWaitError as e:
@@ -225,7 +229,7 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
             print(f"\n{indent}⚠️ Flood! Aguardando {wait}s...")
             await asyncio.sleep(wait)
             try:
-                await client.forward_messages(destino, ids, origem, drop_author=True)
+                await client.forward_messages(destino, ids, origem, **fwd_kwargs)
                 count += len(ids)
                 print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
             except FloodWaitError as e2:
@@ -233,7 +237,7 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
                 print(f"\n{indent}⚠️ Flood novamente! Aguardando {wait2}s...")
                 await asyncio.sleep(wait2)
                 try:
-                    await client.forward_messages(destino, ids, origem, drop_author=True)
+                    await client.forward_messages(destino, ids, origem, **fwd_kwargs)
                     count += len(ids)
                     print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
                 except Exception as e3:
@@ -487,6 +491,108 @@ async def clonar_com_backup_automatico(client):
     except Exception as e:
         print(f"\n❌ Erro crítico: {e}")
 
+async def clonar_topicos_com_backup_automatico(client):
+    """Clona todos os tópicos de um grupo de fórum criando automaticamente um backup como destino."""
+    print("\n" + "="*60)
+    print("CLONAR TODOS OS TÓPICOS COM BACKUP AUTOMÁTICO")
+    print("="*60)
+
+    try:
+        if input("\n🎯 Usar seleção automática? (s/n): ").lower().startswith('s'):
+            origem_id = await selecionar_entidade(client, "ORIGEM (grupo com tópicos)", mostrar_canais=False, mostrar_grupos=True)
+        else:
+            origem_id = input("ID grupo origem (fórum com tópicos): ").strip()
+            try:
+                origem_id = int(origem_id)
+            except ValueError:
+                pass
+
+        grupo_origem = await client.get_input_entity(origem_id)
+
+        origem_entity = await client.get_entity(origem_id)
+        nome_origem = getattr(origem_entity, 'title', str(origem_id))
+
+        # Cria grupo backup automaticamente
+        grupo_backup = await criar_grupo_backup(client, nome_origem)
+        if grupo_backup is None:
+            print("❌ Não foi possível criar o grupo backup.")
+            return
+
+        # Ativa modo fórum no grupo backup
+        print("\n⚙️ Ativando modo fórum no grupo backup...")
+        try:
+            input_backup = await client.get_input_entity(grupo_backup.id)
+            await client(ToggleForumRequest(channel=input_backup, enabled=True))
+            print("✅ Modo fórum ativado!")
+        except Exception as e:
+            print(f"⚠️ Não foi possível ativar modo fórum: {e}")
+
+        grupo_destino = await client.get_input_entity(grupo_backup.id)
+
+        print("\n📲 Buscando tópicos do grupo de origem...")
+        topicos = await _obter_topicos_forum(client, grupo_origem)
+        topicos_ids = list(topicos.keys())
+        if not topicos_ids:
+            print("❌ Nenhum tópico encontrado!")
+            return
+
+        print(f"✅ Encontrados {len(topicos_ids)} tópicos!\n")
+
+        total_count = 0
+        total_erros = 0
+        inicio_total = time.monotonic()
+
+        for idx, topico_id in enumerate(topicos_ids, 1):
+            titulo_topico = topicos[topico_id]
+            print(f"\n{'-'*50}")
+            print(f"📌 Tópico {idx}/{len(topicos_ids)}: {titulo_topico}")
+            print(f"{'-'*50}")
+
+            # Cria o tópico correspondente no backup
+            novo_topico_id = None
+            try:
+                result = await client(CreateForumTopicRequest(
+                    channel=grupo_destino,
+                    title=titulo_topico,
+                    random_id=random.randint(1, 2**31),
+                ))
+                for upd in result.updates:
+                    if hasattr(upd, 'message') and hasattr(upd.message, 'id'):
+                        novo_topico_id = upd.message.id
+                        break
+                if novo_topico_id:
+                    print(f"  ✅ Tópico criado no backup (ID: {novo_topico_id})")
+                else:
+                    print(f"  ⚠️ Tópico criado, mas ID não obtido. Mensagens irão para o tópico geral.")
+            except Exception as e:
+                print(f"  ⚠️ Erro ao criar tópico '{titulo_topico}': {e}")
+
+            count, erros = await _clonar_mensagens(
+                client, grupo_origem, grupo_destino,
+                reply_to=topico_id,
+                limit=None,
+                indent="  ",
+                destino_topico_id=novo_topico_id,
+            )
+            total_count += count
+            total_erros += erros
+            print(f"\n  📊 Concluído: {count} msgs copiadas, {erros} erros")
+            if idx < len(topicos_ids):
+                print(f"  ⏳ Aguardando 3s antes do próximo tópico...")
+                await asyncio.sleep(3)
+
+        elapsed = time.monotonic() - inicio_total
+        print("\n" + "="*60)
+        print(f"🎉 BACKUP COMPLETO COM TODOS OS TÓPICOS! ({elapsed:.0f}s)")
+        print(f"✅ Total: {total_count} mensagens | ❌ Erros: {total_erros}")
+        print(f"📁 Backup salvo em: {grupo_backup.title}")
+        print("="*60)
+
+    except KeyboardInterrupt:
+        print("\n\n🛑 CLONAGEM INTERROMPIDA PELO USUÁRIO!")
+    except Exception as e:
+        print(f"\n❌ Erro crítico: {e}")
+
 async def buscar_grupos_por_nome(client):
     """Busca grupos e canais dos quais o usuário faz parte por nome."""
     print("\n" + "="*60)
@@ -527,14 +633,21 @@ async def buscar_grupos_por_nome(client):
 async def menu_principal():
     MENU = """
 ╔════════════════════════════════════════════════════════════╗
-║        CLONADOR KHAOSTHEVOID | TOTALMENTE SEM LIMITES      ║
+║    ✦  CLONADOR KHAOSTHEVOID  |  TOTALMENTE SEM LIMITES     ║
 ╠════════════════════════════════════════════════════════════╣
-║ 1. Clonar UM tópico de grupo (com lista de tópicos)        ║
-║ 2. Clonar TODOS os tópicos de grupo                        ║
-║ 3. Clonar canal completo (TODAS as mensagens)              ║
-║ 4. Clonar canal com BACKUP AUTOMÁTICO                      ║
-║ 5. Buscar grupos/canais por nome                           ║
-║ 6. Sair                                                    ║
+║                                                            ║
+║   ┌─ CLONAGEM ─────────────────────────────────────────┐   ║
+║   │  1.  Clonar canal completo (todas as mensagens)     │  ║
+║   │  2.  Clonar canal com  >>>  BACKUP AUTOMÁTICO       │  ║
+║   │  3.  Clonar TODOS os tópicos  >>>  BACKUP AUTO      │  ║
+║   └─────────────────────────────────────────────────────┘  ║
+║                                                            ║
+║   ┌─ UTILITARIOS ──────────────────────────────────────┐   ║
+║   │  4.  Buscar grupos/canais por nome                  │  ║
+║   │  5.  Sair                                           │  ║
+║   └─────────────────────────────────────────────────────┘  ║
+╠════════════════════════════════════════════════════════════╣
+║               ✦  modificado por bergaria  ✦                ║
 ╚════════════════════════════════════════════════════════════╝
 """
     client = await connect_client()
@@ -544,19 +657,17 @@ async def menu_principal():
             limpar_tela()
             print(MENU)
             
-            opcao = input("\nOpção (1-6): ").strip()
+            opcao = input("\nOpção (1-5): ").strip()
             
             if opcao == "1":
-                await clonar_topico_especifico(client)
-            elif opcao == "2":
-                await clonar_todos_topicos(client)
-            elif opcao == "3":
                 await clonar_canal(client)
-            elif opcao == "4":
+            elif opcao == "2":
                 await clonar_com_backup_automatico(client)
-            elif opcao == "5":
+            elif opcao == "3":
+                await clonar_topicos_com_backup_automatico(client)
+            elif opcao == "4":
                 await buscar_grupos_por_nome(client)
-            elif opcao == "6":
+            elif opcao == "5":
                 print("👋 Saindo...")
                 break
             else:
