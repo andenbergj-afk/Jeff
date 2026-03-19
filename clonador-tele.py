@@ -522,7 +522,7 @@ async def clonar_topicos_com_backup_automatico(client):
         print("\n⚙️ Ativando modo fórum no grupo backup...")
         try:
             input_backup = await client.get_input_entity(grupo_backup.id)
-            await client(ToggleForumRequest(channel=input_backup, enabled=True, tabs=True))
+            await client(ToggleForumRequest(input_backup, True))
             print("✅ Modo fórum ativado!")
         except Exception as e:
             print(f"⚠️ Não foi possível ativar modo fórum: {e}")
@@ -552,8 +552,8 @@ async def clonar_topicos_com_backup_automatico(client):
             novo_topico_id = None
             try:
                 result = await client(CreateForumTopicRequest(
-                    channel=grupo_destino,
-                    title=titulo_topico,
+                    grupo_destino,
+                    titulo_topico,
                     random_id=random.randint(1, 2**31),
                 ))
                 for upd in result.updates:
