@@ -144,9 +144,9 @@ async def _obter_topicos_forum(client, grupo):
     offset_topic = 0
     while True:
         result = await client(GetForumTopicsRequest(
-            channel=grupo,
+            peer=grupo,
             q='',
-            offset_date=0,
+            offset_date=None,
             offset_id=0,
             offset_topic=offset_topic,
             limit=100,
@@ -522,7 +522,7 @@ async def clonar_topicos_com_backup_automatico(client):
         print("\n⚙️ Ativando modo fórum no grupo backup...")
         try:
             input_backup = await client.get_input_entity(grupo_backup.id)
-            await client(ToggleForumRequest(channel=input_backup, enabled=True))
+            await client(ToggleForumRequest(channel=input_backup, enabled=True, tabs=True))
             print("✅ Modo fórum ativado!")
         except Exception as e:
             print(f"⚠️ Não foi possível ativar modo fórum: {e}")
