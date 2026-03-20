@@ -167,8 +167,6 @@ def _normalizar_titulo_topico(titulo, fallback):
         if not titulo:
             return fallback
         # Remove combinadores finais para evitar cortar sequências Unicode.
-        if titulo and all(unicodedata.combining(ch) for ch in titulo):
-            return fallback
         idx = len(titulo)
         # Loop explícito: não há rstrip por categoria Unicode e os combinadores são poucos.
         while idx > 0:
