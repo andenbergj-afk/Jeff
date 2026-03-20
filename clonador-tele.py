@@ -5,6 +5,7 @@ import asyncio
 import os
 import random
 import sys
+import unicodedata
 import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
@@ -13,6 +14,11 @@ from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTop
 from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
+MAX_FORUM_TOPIC_TITLE_LENGTH = 128
+CONTROL_CHAR_TRANSLATION = {
+    **dict.fromkeys(range(32), None),
+    **dict.fromkeys(range(127, 160), None),
+}
 
 def limpar_tela():
     os.system('clear')
@@ -137,6 +143,54 @@ async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostra
                 print("❌ Número inválido!")
         except ValueError:
             print("❌ Digite apenas números!")
+
+def _normalizar_titulo_topico(titulo, fallback):
+    """Normaliza o título de tópico garantindo um valor válido.
+
+    Args:
+        titulo: Título original do tópico.
+        fallback: Texto alternativo quando o título é inválido ou vazio.
+
+    Returns:
+        String normalizada e segura para criação do tópico.
+    """
+    if titulo is None:
+        titulo = ""
+    titulo = str(titulo)
+    titulo = " ".join(titulo.split())  # Normaliza espaços em branco (colapsa e remove bordas)
+    titulo = titulo.translate(CONTROL_CHAR_TRANSLATION)
+    if not titulo:
+        return fallback
+    if _utf16_length(titulo) > MAX_FORUM_TOPIC_TITLE_LENGTH:
+        # Trunca pelo limite do título em unidades UTF-16 da API.
+        titulo = _truncate_utf16(titulo, MAX_FORUM_TOPIC_TITLE_LENGTH).rstrip()
+        if not titulo:
+            return fallback
+        # Remove combinadores finais para evitar cortar sequências Unicode.
+        idx = len(titulo)
+        # Loop explícito: não há rstrip por categoria Unicode.
+        while idx > 0:
+            if unicodedata.combining(titulo[idx - 1]) == 0:
+                break
+            idx -= 1
+        titulo = titulo[:idx]
+        if not titulo:
+            return fallback
+    return titulo
+
+def _utf16_length(text):
+    return len(text.encode("utf-16-le")) // 2
+
+def _truncate_utf16(text, max_units):
+    total = 0
+    partes = []
+    for ch in text:
+        unidades = len(ch.encode("utf-16-le")) // 2
+        if total + unidades > max_units:
+            break
+        partes.append(ch)
+        total += unidades
+    return "".join(partes)
 
 async def _obter_topicos_forum(client, grupo):
     """Obtém tópicos do fórum via API oficial (rápido, sem iterar mensagens)."""
@@ -543,7 +597,7 @@ async def clonar_topicos_com_backup_automatico(client):
         inicio_total = time.monotonic()
 
         for idx, topico_id in enumerate(topicos_ids, 1):
-            titulo_topico = topicos[topico_id]
+            titulo_topico = _normalizar_titulo_topico(topicos[topico_id], f"Tópico {topico_id}")
             print(f"\n{'-'*50}")
             print(f"📌 Tópico {idx}/{len(topicos_ids)}: {titulo_topico}")
             print(f"{'-'*50}")
