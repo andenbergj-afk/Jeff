@@ -14,7 +14,7 @@ from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTop
 from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
-MAX_FORUM_TOPIC_TITLE = 128
+MAX_FORUM_TOPIC_TITLE_LENGTH = 128
 CONTROL_CHAR_TRANSLATION = {
     **dict.fromkeys(range(32), None),
     **dict.fromkeys(range(127, 160), None),
@@ -161,14 +161,14 @@ def _normalizar_titulo_topico(titulo, fallback):
     titulo = titulo.translate(CONTROL_CHAR_TRANSLATION)
     if not titulo:
         return fallback
-    if len(titulo) > MAX_FORUM_TOPIC_TITLE:
-        # Trunca por caracteres (limite de título da API) e remove combinadores finais.
-        titulo = titulo[:MAX_FORUM_TOPIC_TITLE].rstrip()
+    if _utf16_length(titulo) > MAX_FORUM_TOPIC_TITLE_LENGTH:
+        # Trunca pelo limite do título em unidades UTF-16 da API.
+        titulo = _truncate_utf16(titulo, MAX_FORUM_TOPIC_TITLE_LENGTH).rstrip()
         if not titulo:
             return fallback
         # Remove combinadores finais para evitar cortar sequências Unicode.
         idx = len(titulo)
-        # Loop explícito: não há rstrip por categoria Unicode e os combinadores são poucos.
+        # Loop explícito: não há rstrip por categoria Unicode.
         while idx > 0:
             if not unicodedata.combining(titulo[idx - 1]):
                 break
@@ -177,6 +177,20 @@ def _normalizar_titulo_topico(titulo, fallback):
         if not titulo:
             return fallback
     return titulo
+
+def _utf16_length(text):
+    return len(text.encode("utf-16-le")) // 2
+
+def _truncate_utf16(text, max_units):
+    total = 0
+    partes = []
+    for ch in text:
+        unidades = len(ch.encode("utf-16-le")) // 2
+        if total + unidades > max_units:
+            break
+        partes.append(ch)
+        total += unidades
+    return "".join(partes)
 
 async def _obter_topicos_forum(client, grupo):
     """Obtém tópicos do fórum via API oficial (rápido, sem iterar mensagens)."""
