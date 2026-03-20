@@ -5,6 +5,7 @@ import asyncio
 import os
 import random
 import sys
+import unicodedata
 import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
@@ -140,11 +141,17 @@ async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostra
             print("❌ Digite apenas números!")
 
 def _normalizar_titulo_topico(titulo, fallback):
+    """Normaliza o título de tópico garantindo um valor válido.
+
+    O título é convertido para string, tem espaços normalizados e caracteres de
+    controle removidos. Se o resultado ficar vazio ou exceder o limite, aplica
+    o fallback informado.
+    """
     if titulo is None:
         titulo = ""
     titulo = str(titulo)
     titulo = " ".join(titulo.split())
-    titulo = "".join(ch for ch in titulo if ch.isprintable())
+    titulo = "".join(ch for ch in titulo if unicodedata.category(ch) != "Cc")
     if not titulo:
         return fallback
     if len(titulo) > MAX_FORUM_TOPIC_TITLE:
