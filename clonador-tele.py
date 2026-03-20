@@ -146,7 +146,7 @@ def _normalizar_titulo_topico(titulo, fallback):
 
     O título é convertido para string, tem espaços normalizados e caracteres de
     controle removidos. Se o resultado ficar vazio ou exceder o limite, aplica
-    o fallback informado.
+    o fallback informado (string usada quando o título é inválido ou vazio).
     """
     if titulo is None:
         titulo = ""
@@ -157,8 +157,10 @@ def _normalizar_titulo_topico(titulo, fallback):
         return fallback
     if len(titulo) > MAX_FORUM_TOPIC_TITLE:
         titulo = titulo[:MAX_FORUM_TOPIC_TITLE].rstrip()
+        if not titulo:
+            return fallback
         idx = len(titulo)
-        while idx and unicodedata.combining(titulo[idx - 1]):
+        while idx > 0 and unicodedata.combining(titulo[idx - 1]):
             idx -= 1
         titulo = titulo[:idx]
         if not titulo:
