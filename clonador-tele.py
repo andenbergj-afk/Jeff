@@ -144,9 +144,12 @@ async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostra
 def _normalizar_titulo_topico(titulo, fallback):
     """Normaliza o título de tópico garantindo um valor válido.
 
-    O título é convertido para string, tem espaços normalizados e caracteres de
-    controle removidos. Se o resultado ficar vazio ou exceder o limite, aplica
-    o fallback informado (string usada quando o título é inválido ou vazio).
+    Args:
+        titulo: Título original do tópico.
+        fallback: Texto alternativo quando o título é inválido ou vazio.
+
+    Returns:
+        String normalizada e segura para criação do tópico.
     """
     if titulo is None:
         titulo = ""
@@ -159,6 +162,7 @@ def _normalizar_titulo_topico(titulo, fallback):
         titulo = titulo[:MAX_FORUM_TOPIC_TITLE].rstrip()
         if not titulo:
             return fallback
+        # Remove combinadores finais para evitar cortar sequências Unicode.
         idx = len(titulo)
         while idx > 0:
             if not unicodedata.combining(titulo[idx - 1]):
