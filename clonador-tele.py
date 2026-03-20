@@ -143,8 +143,8 @@ def _normalizar_titulo_topico(titulo, fallback):
     if titulo is None:
         titulo = ""
     titulo = str(titulo)
-    titulo = " ".join(titulo.replace("\t", " ").replace("\n", " ").replace("\r", " ").split())
-    titulo = "".join(ch for ch in titulo if ch.isprintable())
+    titulo = " ".join(titulo.split())
+    titulo = "".join([ch for ch in titulo if ch.isprintable()])
     if not titulo:
         titulo = fallback
     if len(titulo) > MAX_FORUM_TOPIC_TITLE:
