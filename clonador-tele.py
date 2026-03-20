@@ -15,7 +15,7 @@ from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
 MAX_FORUM_TOPIC_TITLE = 128
-CONTROL_CHAR_TRANSLATION = dict.fromkeys(list(range(0, 32)) + list(range(127, 160)), None)
+CONTROL_CHAR_TRANSLATION = dict.fromkeys(range(32), None) | dict.fromkeys(range(127, 160), None)
 
 def limpar_tela():
     os.system('clear')
@@ -154,7 +154,7 @@ def _normalizar_titulo_topico(titulo, fallback):
     if titulo is None:
         titulo = ""
     titulo = str(titulo)
-    titulo = " ".join(titulo.split())
+    titulo = " ".join(titulo.split())  # Normaliza espaços em branco
     titulo = titulo.translate(CONTROL_CHAR_TRANSLATION)
     if not titulo:
         return fallback
@@ -163,6 +163,8 @@ def _normalizar_titulo_topico(titulo, fallback):
         if not titulo:
             return fallback
         # Remove combinadores finais para evitar cortar sequências Unicode.
+        if all(unicodedata.combining(ch) for ch in titulo):
+            return fallback
         idx = len(titulo)
         while idx > 0:
             if not unicodedata.combining(titulo[idx - 1]):
