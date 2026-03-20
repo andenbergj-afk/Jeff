@@ -160,7 +160,9 @@ def _normalizar_titulo_topico(titulo, fallback):
         if not titulo:
             return fallback
         idx = len(titulo)
-        while idx > 0 and unicodedata.combining(titulo[idx - 1]):
+        while idx > 0:
+            if not unicodedata.combining(titulo[idx - 1]):
+                break
             idx -= 1
         titulo = titulo[:idx]
         if not titulo:
