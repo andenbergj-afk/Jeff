@@ -604,22 +604,37 @@ async def clonar_topicos_com_backup_automatico(client):
 
             # Cria o tópico correspondente no backup
             novo_topico_id = None
-            try:
-                result = await client(CreateForumTopicRequest(
-                    grupo_destino,
-                    titulo_topico,
-                    random_id=random.randint(1, 2**31),
-                ))
-                for upd in result.updates:
-                    if hasattr(upd, 'message') and hasattr(upd.message, 'id'):
-                        novo_topico_id = upd.message.id
+            if topico_id == 1:
+                # O tópico Geral (id=1) é criado automaticamente ao ativar o modo fórum.
+                novo_topico_id = 1
+                print(f"  ℹ️ Tópico Geral (id=1) já existe no backup, reutilizando.")
+            else:
+                for tentativa in range(2):
+                    try:
+                        result = await client(CreateForumTopicRequest(
+                            grupo_destino,
+                            titulo_topico,
+                            random_id=random.randint(1, 2**63 - 1),
+                        ))
+                        for upd in result.updates:
+                            if hasattr(upd, 'message') and hasattr(upd.message, 'id'):
+                                novo_topico_id = upd.message.id
+                                break
+                        if novo_topico_id:
+                            print(f"  ✅ Tópico criado no backup (ID: {novo_topico_id})")
+                        else:
+                            print(f"  ⚠️ Tópico criado, mas ID não obtido. Mensagens irão para o tópico geral.")
                         break
-                if novo_topico_id:
-                    print(f"  ✅ Tópico criado no backup (ID: {novo_topico_id})")
-                else:
-                    print(f"  ⚠️ Tópico criado, mas ID não obtido. Mensagens irão para o tópico geral.")
-            except Exception as e:
-                print(f"  ⚠️ Erro ao criar tópico '{titulo_topico}': {e}")
+                    except FloodWaitError as e:
+                        if tentativa == 0:
+                            wait = e.seconds + 1
+                            print(f"  ⚠️ Flood ao criar tópico! Aguardando {wait}s...")
+                            await asyncio.sleep(wait)
+                        else:
+                            print(f"  ⚠️ Erro ao criar tópico '{titulo_topico}' após retry: {e}")
+                    except Exception as e:
+                        print(f"  ⚠️ Erro ao criar tópico '{titulo_topico}': {e}")
+                        break
 
             count, erros = await _clonar_mensagens(
                 client, grupo_origem, grupo_destino,
