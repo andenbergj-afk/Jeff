@@ -10,7 +10,7 @@ import time
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, FloodWaitError
 from telethon.tl.functions.channels import CreateChannelRequest, ToggleForumRequest
-from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTopicRequest
+from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTopicRequest, ForwardMessagesRequest
 from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
@@ -273,16 +273,33 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
     if reply_to is not None:
         kwargs["reply_to"] = reply_to
 
-    fwd_kwargs = {"drop_author": True}
+    # Resolve input entities once when forwarding to a forum topic
+    from_peer_input = None
+    to_peer_input = None
     if destino_topico_id is not None:
-        fwd_kwargs["top_msg_id"] = destino_topico_id
+        from_peer_input = await client.get_input_entity(origem)
+        to_peer_input = await client.get_input_entity(destino)
 
     batch = []
+
+    async def _fazer_forward(ids):
+        """Executa o forward de um lote de IDs, usando ForwardMessagesRequest quando há tópico destino."""
+        if destino_topico_id is not None:
+            await client(ForwardMessagesRequest(
+                from_peer=from_peer_input,
+                id=ids,
+                to_peer=to_peer_input,
+                drop_author=True,
+                top_msg_id=destino_topico_id,
+                random_id=[random.randint(1, 2**63 - 1) for _ in ids],
+            ))
+        else:
+            await client.forward_messages(destino, ids, origem, drop_author=True)
 
     async def _enviar_lote(ids):
         nonlocal count, erros
         try:
-            await client.forward_messages(destino, ids, origem, **fwd_kwargs)
+            await _fazer_forward(ids)
             count += len(ids)
             print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
         except FloodWaitError as e:
@@ -290,7 +307,7 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
             print(f"\n{indent}⚠️ Flood! Aguardando {wait}s...")
             await asyncio.sleep(wait)
             try:
-                await client.forward_messages(destino, ids, origem, **fwd_kwargs)
+                await _fazer_forward(ids)
                 count += len(ids)
                 print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
             except FloodWaitError as e2:
@@ -298,7 +315,7 @@ async def _clonar_mensagens(client, origem, destino, reply_to=None, limit=None, 
                 print(f"\n{indent}⚠️ Flood novamente! Aguardando {wait2}s...")
                 await asyncio.sleep(wait2)
                 try:
-                    await client.forward_messages(destino, ids, origem, **fwd_kwargs)
+                    await _fazer_forward(ids)
                     count += len(ids)
                     print(f"{indent}✅ {count} mensagens copiadas...", end='\r')
                 except Exception as e3:
@@ -583,7 +600,7 @@ async def clonar_topicos_com_backup_automatico(client):
         print("\n⚙️ Ativando modo fórum no grupo backup...")
         try:
             input_backup = await client.get_input_entity(grupo_backup.id)
-            await client(ToggleForumRequest(input_backup, True))
+            await client(ToggleForumRequest(input_backup, True, False))
             print("✅ Modo fórum ativado!")
         except Exception as e:
             print(f"⚠️ Não foi possível ativar modo fórum: {e}")
