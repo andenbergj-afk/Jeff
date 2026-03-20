@@ -13,6 +13,7 @@ from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTop
 from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
+MAX_FORUM_TOPIC_TITLE = 128
 
 def limpar_tela():
     os.system('clear')
@@ -137,6 +138,20 @@ async def selecionar_entidade(client, tipo="origem", mostrar_canais=True, mostra
                 print("❌ Número inválido!")
         except ValueError:
             print("❌ Digite apenas números!")
+
+def _normalizar_titulo_topico(titulo, fallback):
+    if titulo is None:
+        titulo = ""
+    titulo = str(titulo)
+    titulo = " ".join(titulo.replace("\t", " ").replace("\n", " ").replace("\r", " ").split())
+    titulo = "".join(ch for ch in titulo if ch.isprintable())
+    if not titulo:
+        titulo = fallback
+    if len(titulo) > MAX_FORUM_TOPIC_TITLE:
+        titulo = titulo[:MAX_FORUM_TOPIC_TITLE].rstrip()
+        if not titulo:
+            titulo = fallback
+    return titulo
 
 async def _obter_topicos_forum(client, grupo):
     """Obtém tópicos do fórum via API oficial (rápido, sem iterar mensagens)."""
@@ -543,7 +558,7 @@ async def clonar_topicos_com_backup_automatico(client):
         inicio_total = time.monotonic()
 
         for idx, topico_id in enumerate(topicos_ids, 1):
-            titulo_topico = topicos[topico_id]
+            titulo_topico = _normalizar_titulo_topico(topicos[topico_id], f"Tópico {topico_id}")
             print(f"\n{'-'*50}")
             print(f"📌 Tópico {idx}/{len(topicos_ids)}: {titulo_topico}")
             print(f"{'-'*50}")
