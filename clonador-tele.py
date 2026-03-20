@@ -632,6 +632,7 @@ async def clonar_topicos_com_backup_automatico(client):
                 for i_titulo, titulo_usar in enumerate(titulos_a_tentar):
                     if i_titulo > 0:
                         print(f"  ↩️ Tentando título alternativo: '{titulo_usar}'")
+                        await asyncio.sleep(2)
                     for tentativa in range(2):
                         try:
                             result = await client(CreateForumTopicRequest(
@@ -657,11 +658,15 @@ async def clonar_topicos_com_backup_automatico(client):
                             else:
                                 print(f"  ⚠️ Erro ao criar tópico '{titulo_usar}' após retry: {e}")
                         except Exception as e:
-                            print(f"  ⚠️ Erro ao criar tópico '{titulo_usar}': {e}")
-                            # Sai do loop de tentativas (flood-retry) para este título;
-                            # o loop externo continua com o próximo título alternativo
-                            # enquanto `criado` permanecer False.
-                            break
+                            tipo_erro = type(e).__name__
+                            print(f"  ⚠️ Erro ao criar tópico '{titulo_usar}': [{tipo_erro}] {e}")
+                            if tentativa == 0:
+                                # Aguarda antes de tentar o mesmo título novamente;
+                                # pode recuperar de erros transientes do servidor.
+                                await asyncio.sleep(3)
+                            else:
+                                # Segunda falha: desiste deste título e tenta o próximo.
+                                break
                     if criado:
                         break
 
