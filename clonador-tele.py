@@ -18,6 +18,13 @@ MAX_FORUM_TOPIC_TITLE_LENGTH = 128
 CONTROL_CHAR_TRANSLATION = {
     **dict.fromkeys(range(32), None),
     **dict.fromkeys(range(127, 160), None),
+    0x00AD: None,   # SOFT HYPHEN
+    0x200B: None,   # ZERO WIDTH SPACE
+    0x200E: None,   # LEFT-TO-RIGHT MARK
+    0x200F: None,   # RIGHT-TO-LEFT MARK
+    0x2028: None,   # LINE SEPARATOR
+    0x2029: None,   # PARAGRAPH SEPARATOR
+    0xFEFF: None,   # ZERO WIDTH NO-BREAK SPACE (BOM)
 }
 
 def limpar_tela():
@@ -609,31 +616,53 @@ async def clonar_topicos_com_backup_automatico(client):
                 novo_topico_id = 1
                 print(f"  ℹ️ Tópico Geral (id=1) já existe no backup, reutilizando.")
             else:
-                for tentativa in range(2):
-                    try:
-                        result = await client(CreateForumTopicRequest(
-                            grupo_destino,
-                            titulo_topico,
-                            random_id=random.randint(1, 2**63 - 1),
-                        ))
-                        for upd in result.updates:
-                            if hasattr(upd, 'message') and hasattr(upd.message, 'id'):
-                                novo_topico_id = upd.message.id
-                                break
-                        if novo_topico_id:
-                            print(f"  ✅ Tópico criado no backup (ID: {novo_topico_id})")
-                        else:
-                            print(f"  ⚠️ Tópico criado, mas ID não obtido. Mensagens irão para o tópico geral.")
-                        break
-                    except FloodWaitError as e:
-                        if tentativa == 0:
-                            wait = e.seconds + 1
-                            print(f"  ⚠️ Flood ao criar tópico! Aguardando {wait}s...")
-                            await asyncio.sleep(wait)
-                        else:
-                            print(f"  ⚠️ Erro ao criar tópico '{titulo_topico}' após retry: {e}")
-                    except Exception as e:
-                        print(f"  ⚠️ Erro ao criar tópico '{titulo_topico}': {e}")
+                # Monta lista de títulos para tentar em ordem:
+                # 1) título normalizado original
+                # 2) versão ASCII-only (remove emojis/caracteres não-ASCII)
+                # 3) fallback numérico genérico
+                titulos_a_tentar = [titulo_topico]
+                # 32 = first printable ASCII (space), 128 = first non-ASCII code point
+                titulo_ascii = ''.join(c for c in titulo_topico if 32 <= ord(c) < 128).strip()
+                titulo_ascii = ' '.join(titulo_ascii.split())
+                if titulo_ascii and titulo_ascii != titulo_topico:
+                    titulos_a_tentar.append(titulo_ascii)
+                titulos_a_tentar.append(f"Tópico {topico_id}")
+
+                criado = False
+                for i_titulo, titulo_usar in enumerate(titulos_a_tentar):
+                    if i_titulo > 0:
+                        print(f"  ↩️ Tentando título alternativo: '{titulo_usar}'")
+                    for tentativa in range(2):
+                        try:
+                            result = await client(CreateForumTopicRequest(
+                                grupo_destino,
+                                titulo_usar,
+                                random_id=random.randint(1, 2**63 - 1),
+                            ))
+                            for upd in result.updates:
+                                if hasattr(upd, 'message') and hasattr(upd.message, 'id'):
+                                    novo_topico_id = upd.message.id
+                                    break
+                            if novo_topico_id:
+                                print(f"  ✅ Tópico criado no backup (ID: {novo_topico_id})")
+                            else:
+                                print(f"  ⚠️ Tópico criado, mas ID não obtido. Mensagens irão para o tópico geral.")
+                            criado = True
+                            break
+                        except FloodWaitError as e:
+                            if tentativa == 0:
+                                wait = e.seconds + 1
+                                print(f"  ⚠️ Flood ao criar tópico! Aguardando {wait}s...")
+                                await asyncio.sleep(wait)
+                            else:
+                                print(f"  ⚠️ Erro ao criar tópico '{titulo_usar}' após retry: {e}")
+                        except Exception as e:
+                            print(f"  ⚠️ Erro ao criar tópico '{titulo_usar}': {e}")
+                            # Sai do loop de tentativas (flood-retry) para este título;
+                            # o loop externo continua com o próximo título alternativo
+                            # enquanto `criado` permanecer False.
+                            break
+                    if criado:
                         break
 
             count, erros = await _clonar_mensagens(
