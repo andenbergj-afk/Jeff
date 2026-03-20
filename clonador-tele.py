@@ -15,8 +15,7 @@ from telethon.tl.types import Channel
 
 SESSION_FILE = "telegram_session"
 MAX_FORUM_TOPIC_TITLE = 128
-CONTROL_CHAR_TRANSLATION = dict.fromkeys(range(0, 32), None)
-CONTROL_CHAR_TRANSLATION.update(dict.fromkeys(range(127, 160), None))
+CONTROL_CHAR_TRANSLATION = dict.fromkeys(list(range(0, 32)) + list(range(127, 160)), None)
 
 def limpar_tela():
     os.system('clear')
@@ -160,6 +159,8 @@ def _normalizar_titulo_topico(titulo, fallback):
         titulo = titulo[:MAX_FORUM_TOPIC_TITLE].rstrip()
         while titulo and unicodedata.combining(titulo[-1]):
             titulo = titulo[:-1]
+        if not titulo:
+            return fallback
     return titulo or fallback
 
 async def _obter_topicos_forum(client, grupo):
