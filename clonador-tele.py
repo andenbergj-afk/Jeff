@@ -144,14 +144,12 @@ def _normalizar_titulo_topico(titulo, fallback):
         titulo = ""
     titulo = str(titulo)
     titulo = " ".join(titulo.split())
-    titulo = "".join([ch for ch in titulo if ch.isprintable()])
+    titulo = "".join(ch for ch in titulo if ch.isprintable())
     if not titulo:
-        titulo = fallback
+        return fallback
     if len(titulo) > MAX_FORUM_TOPIC_TITLE:
         titulo = titulo[:MAX_FORUM_TOPIC_TITLE].rstrip()
-        if not titulo:
-            titulo = fallback
-    return titulo
+    return titulo or fallback
 
 async def _obter_topicos_forum(client, grupo):
     """Obtém tópicos do fórum via API oficial (rápido, sem iterar mensagens)."""
