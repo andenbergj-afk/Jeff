@@ -157,7 +157,7 @@ def _normalizar_titulo_topico(titulo, fallback):
     if titulo is None:
         titulo = ""
     titulo = str(titulo)
-    titulo = " ".join(titulo.split())  # Normaliza espaços em branco
+    titulo = " ".join(titulo.split())  # Normaliza espaços em branco (colapsa e remove bordas)
     titulo = titulo.translate(CONTROL_CHAR_TRANSLATION)
     if not titulo:
         return fallback
@@ -170,7 +170,7 @@ def _normalizar_titulo_topico(titulo, fallback):
         idx = len(titulo)
         # Loop explícito: não há rstrip por categoria Unicode.
         while idx > 0:
-            if not unicodedata.combining(titulo[idx - 1]):
+            if unicodedata.combining(titulo[idx - 1]) == 0:
                 break
             idx -= 1
         titulo = titulo[:idx]
